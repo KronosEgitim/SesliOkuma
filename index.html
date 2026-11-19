@@ -9,7 +9,7 @@
 </style>
 </head>
 <body><main class="wrap">
-<header><h1>Sesli Okuma v4</h1><small>KRONOS EĞİTİM</small></header>
+<header><h1>Sesli Okuma v5</h1><small>KRONOS EĞİTİM</small></header>
 <section class="panel">
 <div class="toolbar">
 <label class="file">📄 TXT dosyası seç <input id="file" type="file" accept=".txt,text/plain"></label>
@@ -22,7 +22,7 @@
 <div id="status" class="status" role="status" aria-live="polite"></div>
 <div id="reading" class="reading"><span class="placeholder">Okunacak metni yüklemek için bir TXT dosyası seçin.</span></div>
 <section id="results" class="results"><h2>Okuma Sonuçları</h2><div id="stats" class="stats"></div></section>
-<div class="hint">En iyi sonuç için Chrome veya Edge kullanın ve mikrofon izni verin. Konuşma tanıma tarayıcıya bağlı olarak internet bağlantısı gerektirebilir.</div>
+<div class="hint">Safari’de mikrofon izni verin. Okumayı yeniden başlatmak için düğmeye tekrar basın. Konuşma tanıma tarayıcıya bağlı olarak internet bağlantısı gerektirebilir.</div>
 </section></main>
 <script>
 'use strict';
@@ -65,18 +65,82 @@ function handleRecognitionResult(event){
     resultProgress.set(i,count);
   }
 }
-function setupRecognition(){recognition=new SR();recognition.lang='tr-TR';recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;recognition.onresult=handleRecognitionResult;recognition.onerror=e=>{if(!active)return;if(['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(e.error)){finish('Mikrofon veya konuşma tanıma kullanılamıyor: '+e.error,true)}else if(e.error==='network'){finish('Konuşma tanıma bağlantı hatası.',true)}};recognition.onend=()=>{resultProgress.clear();if(active){clearTimeout(recognitionRestart);recognitionRestart=setTimeout(()=>{if(active)try{recognition.start()}catch(e){}},250)}};recognition.start()}
-async function begin(){if(!tokens.length||active)return;if(!SR){showStatus('Bu tarayıcı konuşma tanımayı desteklemiyor. Chrome veya Edge deneyin.',true);return}try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});audioContext=new (window.AudioContext||window.webkitAudioContext)();await audioContext.resume();const source=audioContext.createMediaStreamSource(stream);analyser=audioContext.createAnalyser();analyser.fftSize=2048;source.connect(analyser);audioBuffer=new Float32Array(analyser.fftSize);active=true;resultProgress.clear();startedAt=performance.now();wordStarted=startedAt;lastVoice=startedAt;voicePresent=false;heardVoiceForWord=false;showStatus('');$('results').classList.remove('show');buttons();render();setupRecognition();tick=setInterval(checkSilence,100);monitorAudio()}catch(e){active=false;cleanup();buttons();showStatus('Mikrofona erişilemedi. Tarayıcı izinlerini kontrol edin.',true)}}
-function monitorAudio(){if(!active||!analyser)return;analyser.getFloatTimeDomainData(audioBuffer);let sum=0;for(let i=0;i<audioBuffer.length;i++)sum+=audioBuffer[i]*audioBuffer[i];const rms=Math.sqrt(sum/audioBuffer.length);const now=performance.now();if(rms>0.025){voicePresent=true;heardVoiceForWord=true;lastVoice=now}raf=requestAnimationFrame(monitorAudio)}
+// iOS Safari: Eski oturumdan gelen olaylar yeni okumayı değiştiremez.
+let sessionId=0,starting=false,closing=Promise.resolve(),recognitionEnded=Promise.resolve(),recognitionEndResolve=null;
+function buttons(){start.disabled=active||starting||!tokens.length;stop.disabled=!active;reset.disabled=starting||!tokens.length;file.disabled=active||starting}
+function releaseResources(){
+  clearInterval(tick);cancelAnimationFrame(raf);clearTimeout(recognitionRestart);tick=raf=0;
+  const old=recognition;recognition=null;
+  if(old){old.onresult=null;old.onerror=null;old.onstart=null;old.onend=null;try{old.abort()}catch(e){} }
+  if(recognitionEndResolve){recognitionEndResolve();recognitionEndResolve=null}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  const oldContext=audioContext;audioContext=null;
+  if(oldContext&&oldContext.state!=='closed')oldContext.close().catch(()=>{});
+  analyser=null;audioBuffer=null;voicePresent=false;heardVoiceForWord=false;
+}
+function cleanup(){sessionId++;active=false;releaseResources();buttons()}
+function setupRecognition(id){
+  const rec=new SR();recognition=rec;
+  rec.lang='tr-TR';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
+  rec.onresult=e=>{if(id===sessionId&&active)handleRecognitionResult(e)};
+  rec.onerror=e=>{
+    if(id!==sessionId||!active)return;
+    if(e.error==='no-speech'||e.error==='aborted')return;
+    const msg=e.error==='network'?'Konuşma tanıma bağlantı hatası. Safari’de tekrar başlatmayı deneyin.':'Konuşma tanıma hatası: '+e.error;
+    finish(msg,true);
+  };
+  rec.onend=()=>{
+    if(id!==sessionId||!active)return;
+    // Safari'de otomatik tekrar başlatma mikrofon oturumunu kilitleyebilir.
+    finish('Konuşma tanıma oturumu sona erdi. Tekrar başlatmak için Okumaya Başla’ya basın.',true);
+  };
+  rec.start();
+}
+async function begin(){
+  if(!tokens.length||active||starting)return;
+  if(!SR){showStatus('Safari bu cihazda konuşma tanımayı desteklemiyor.',true);return}
+  starting=true;buttons();showStatus('');
+  // Her kullanıcı tıklaması tamamen yeni bir tanıma nesnesi oluşturur.
+  const id=++sessionId;
+  try{
+    releaseResources();
+    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    if(id!==sessionId){releaseResources();return}
+    audioContext=new (window.AudioContext||window.webkitAudioContext)();
+    await audioContext.resume();
+    if(id!==sessionId){releaseResources();return}
+    const source=audioContext.createMediaStreamSource(stream);
+    analyser=audioContext.createAnalyser();analyser.fftSize=2048;source.connect(analyser);
+    audioBuffer=new Float32Array(analyser.fftSize);
+    resultProgress.clear();
+    startedAt=performance.now();wordStarted=startedAt;lastVoice=startedAt;
+    voicePresent=false;heardVoiceForWord=false;active=true;
+    $('results').classList.remove('show');render();
+    setupRecognition(id);
+    tick=setInterval(checkSilence,100);monitorAudio();
+  }catch(e){
+    if(id===sessionId){cleanup();showStatus('Mikrofon veya konuşma tanıma başlatılamadı. Safari mikrofon iznini kontrol edin.',true)}
+  }finally{starting=false;buttons()}
+}
+function monitorAudio(){
+  if(!active||!analyser)return;
+  analyser.getFloatTimeDomainData(audioBuffer);
+  let sum=0;for(let i=0;i<audioBuffer.length;i++)sum+=audioBuffer[i]*audioBuffer[i];
+  const rms=Math.sqrt(sum/audioBuffer.length),now=performance.now();
+  if(rms>0.025){voicePresent=true;heardVoiceForWord=true;lastVoice=now}
+  raf=requestAnimationFrame(monitorAudio);
+}
 function checkSilence(){
   if(!active)return;
   const now=performance.now();
-  // Konuşma sürerken kelimeyi sessiz sayma. Ses kesilince 3 saniye bekle.
   if(voicePresent){if(now-lastVoice>450){voicePresent=false;wordStarted=now}return}
   if(now-wordStarted>=3000)mark('silent');
 }
-function cleanup(){clearInterval(tick);cancelAnimationFrame(raf);clearTimeout(recognitionRestart);tick=raf=0;if(recognition){recognition.onend=null;recognition.onresult=null;recognition.onerror=null;try{recognition.abort()}catch(e){}recognition=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}if(audioContext){audioContext.close().catch(()=>{});audioContext=null}analyser=null}
-function finish(message='',error=false){if(!active)return;elapsed=(performance.now()-startedAt)/1000;active=false;cleanup();buttons();render();showStatus(message,error);showResults()}
+function finish(message='',error=false){
+  if(!active)return;
+  elapsed=(performance.now()-startedAt)/1000;
+  cleanup();render();showStatus(message,error);showResults();
+}
 function showResults(){const done=tokens.filter(t=>t.state);const correct=done.filter(t=>t.state==='correct').length;const wrong=done.filter(t=>t.state==='wrong').length;const silent=done.filter(t=>t.state==='silent').length;const accuracy=done.length?Math.round(100*correct/done.length):0;const wpm=elapsed?Math.round(done.length*60/elapsed):0;const items=[['Doğruluk',accuracy+'%'],['Okuma hızı',wpm+' kelime/dk'],['Doğru',correct],['Yanlış',wrong],['Okunmayan',silent],['Süre',Math.round(elapsed)+' sn']];$('stats').replaceChildren();for(const [label,value] of items){const div=document.createElement('div');div.className='stat';const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;div.append(strong,span);$('stats').append(div)}$('results').classList.add('show')}
-start.addEventListener('click',begin);stop.addEventListener('click',()=>finish('Okuma kullanıcı tarafından sonlandırıldı.'));reset.addEventListener('click',()=>{tokens.forEach(t=>t.state='');cursor=0;consecutiveSilences=0;elapsed=0;render();$('results').classList.remove('show');showStatus('');buttons()});buttons();
+start.addEventListener('click',begin);stop.addEventListener('click',()=>finish('Okuma kullanıcı tarafından sonlandırıldı.'));reset.addEventListener('click',()=>{cleanup();tokens.forEach(t=>t.state='');cursor=0;consecutiveSilences=0;elapsed=0;render();$('results').classList.remove('show');showStatus('');buttons()});window.addEventListener('pagehide',cleanup);buttons();
 </script></body></html>
