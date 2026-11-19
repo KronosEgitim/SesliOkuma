@@ -6,10 +6,11 @@
 <title>Sesli Okuma | Kronos Eğitim</title>
 <style>
 :root{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#192436;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.wrap{max-width:1080px;margin:auto;padding:24px}header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}h1{font-size:1.65rem;margin:0}header small{color:#64748b}.panel{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:22px;box-shadow:0 3px 14px #17203308}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px}.file{border:1px dashed #94a3b8;border-radius:10px;padding:10px 14px;cursor:pointer;background:#f8fafc}.file input{display:none}button{border:0;border-radius:10px;background:#1d4ed8;color:white;padding:12px 18px;font-weight:650;cursor:pointer}button.secondary{background:#e2e8f0;color:#334155}button:disabled{opacity:.4;cursor:not-allowed}.speed-setting{display:inline-flex;align-items:center;gap:7px;font-weight:600;color:#334155}.speed-setting input{width:65px;padding:9px 7px;border:1px solid #94a3b8;border-radius:8px;font:inherit;text-align:center}.filename{color:#64748b;font-size:.9rem}.status{min-height:28px;font-weight:650;color:#475569;margin-bottom:12px}.status.error{color:#b91c1c}.reading{font-size:clamp(1.25rem,2.1vw,1.8rem);line-height:2.15;white-space:pre-wrap;overflow-wrap:anywhere;min-height:220px;padding:20px;background:#fbfcfe;border:1px solid #edf0f5;border-radius:12px}.word{border-radius:4px;transition:color .12s}.word.active{font-weight:800;text-decoration:underline;text-decoration-color:#94a3b8;text-underline-offset:7px}.word.correct{color:#15803d}.word.wrong{color:#dc2626}.word.silent{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#dc2626}.placeholder{color:#94a3b8;font-size:1rem}.results{display:none;margin-top:20px}.results.show{display:block}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.stat{background:#f8fafc;padding:16px;border-radius:12px;text-align:center}.stat strong{display:block;font-size:1.5rem}.stat span{font-size:.83rem;color:#64748b}.hint{font-size:.85rem;color:#64748b;margin-top:16px}@media(max-width:640px){.wrap{padding:12px}.panel{padding:14px}.stats{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start;flex-direction:column}}
+.diagnostics{margin-top:18px;border:1px solid #cbd5e1;border-radius:12px;padding:14px;background:#f8fafc;font-size:.85rem}.diagnostics summary{cursor:pointer;font-weight:700}.diag-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.diag-grid div{background:white;padding:9px;border-radius:8px}.diag-grid b{display:block;margin-top:4px;overflow-wrap:anywhere}.meter{height:10px;background:#e2e8f0;border-radius:20px;overflow:hidden}.meter-fill{height:100%;background:#16a34a;width:0%}.diag-log{max-height:190px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:8px;white-space:pre-wrap;font:12px/1.5 ui-monospace,monospace}.diag-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.diag-actions button{padding:8px 10px;font-size:.8rem}
 </style>
 </head>
 <body><main class="wrap">
-<header><h1>Sesli Okuma v5</h1><small>KRONOS EĞİTİM</small></header>
+<header><h1>Sesli Okuma v6</h1><small>KRONOS EĞİTİM</small></header>
 <section class="panel">
 <div class="toolbar">
 <label class="file">📄 TXT dosyası seç <input id="file" type="file" accept=".txt,text/plain"></label>
@@ -23,11 +24,21 @@
 <div id="reading" class="reading"><span class="placeholder">Okunacak metni yüklemek için bir TXT dosyası seçin.</span></div>
 <section id="results" class="results"><h2>Okuma Sonuçları</h2><div id="stats" class="stats"></div></section>
 <div class="hint">Safari’de mikrofon izni verin. Okumayı yeniden başlatmak için düğmeye tekrar basın. Konuşma tanıma tarayıcıya bağlı olarak internet bağlantısı gerektirebilir.</div>
-</section></main>
+<details class="diagnostics" id="diagnostics" open><summary>🔧 Safari tanılama paneli (test sürümü)</summary>
+<div class="diag-grid"><div>Mikrofon erişimi<b id="diagMic">Bekleniyor</b></div><div>Ses düzeyi / RMS<b id="diagRms">0.0000</b></div><div>Konuşma tanıma<b id="diagRec">Başlatılmadı</b></div><div>Son tanınan metin<b id="diagText">—</b></div><div>Son hata<b id="diagError">—</b></div><div>Oturum<b id="diagSession">0</b></div></div>
+<div class="meter"><div class="meter-fill" id="diagMeter"></div></div>
+<div class="diag-actions"><button type="button" class="secondary" id="copyDiag">Tanılama kaydını kopyala</button><button type="button" class="secondary" id="clearDiag">Kaydı temizle</button></div><div class="diag-log" id="diagLog" aria-live="off">Test başlatılmadı.</div>
+</details></section></main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const logs=[];
+function diag(field,value){const el=$(field);if(el)el.textContent=String(value)}
+function logDiag(event,detail=''){const line=new Date().toLocaleTimeString('tr-TR')+' | '+event+(detail?' | '+detail:'');logs.push(line);if(logs.length>100)logs.shift();diag('diagLog',logs.join('\n'));$('diagLog').scrollTop=$('diagLog').scrollHeight}
+$('copyDiag').addEventListener('click',async()=>{const data=['Tarayıcı: '+navigator.userAgent,'Adres: '+location.href,...logs].join('\n');try{await navigator.clipboard.writeText(data);logDiag('Kayıt panoya kopyalandı')}catch(e){logDiag('Kopyalama başarısız',String(e))}});
+$('clearDiag').addEventListener('click',()=>{logs.length=0;diag('diagLog','Kayıt temizlendi')});
+logDiag('Sayfa yüklendi','SpeechRecognition: '+Boolean(SR));
 
 const file=$('file'),start=$('start'),stop=$('stop'),reset=$('reset'),reading=$('reading'),status=$('status');
 let tokens=[],cursor=0,consecutiveSilences=0,active=false,recognition=null,stream=null,audioContext=null,analyser=null,audioBuffer=null,raf=0,tick=0,wordStarted=0,lastVoice=0,voicePresent=false,heardVoiceForWord=false,startedAt=0,elapsed=0,recognitionRestart=null,resultProgress=new Map();
@@ -37,12 +48,13 @@ function buttons(){start.disabled=active||!tokens.length;stop.disabled=!active;r
 function render(){reading.replaceChildren();if(!tokens.length)return;const fragment=document.createDocumentFragment();tokens.forEach((t,i)=>{const span=document.createElement('span');span.className='word'+(t.state?' '+t.state:'')+(active&&i===cursor?' active':'');span.textContent=t.text;fragment.append(span,document.createTextNode(t.after))});reading.append(fragment);if(active&&tokens[cursor]){const el=reading.querySelector('.active');if(el){const r=el.getBoundingClientRect();if(r.bottom>innerHeight-45||r.top<0)el.scrollIntoView({block:'center',behavior:'smooth'})}}}
 function parseText(raw){const re=/\S+/g;const found=[...raw.matchAll(re)];tokens=found.map((m,i)=>({text:m[0],norm:normalize(m[0]),after:raw.slice(m.index+m[0].length,found[i+1]?.index??raw.length),state:''})).filter(t=>t.norm);cursor=0;consecutiveSilences=0;elapsed=0;render();$('results').classList.remove('show');buttons()}
 file.addEventListener('change',async()=>{const f=file.files?.[0];if(!f)return;if(!/\.txt$/i.test(f.name)){showStatus('Lütfen .txt uzantılı dosya seçin.',true);return}if(f.size>2*1024*1024){showStatus('Lütfen 2 MB altında bir TXT dosyası seçin.',true);return}try{const raw=await f.text();parseText(raw);$('filename').textContent=f.name;showStatus(tokens.length?`${tokens.length} kelime yüklendi.`:'Dosyada okunabilir kelime bulunamadı.',!tokens.length)}catch(e){showStatus('Dosya okunamadı.',true)}});
-function mark(state){if(!active||cursor>=tokens.length)return;tokens[cursor].state=state;cursor++;consecutiveSilences=state==='silent'?consecutiveSilences+1:0;wordStarted=performance.now();lastVoice=wordStarted;voicePresent=false;heardVoiceForWord=false;render();if(consecutiveSilences>=3){finish('Üst üste 3 kelime okunmadı',true);return}if(cursor>=tokens.length)finish('Okuma tamamlandı');}
+function mark(state){logDiag('Kelime sonucu',`${cursor+1}: ${state}`);if(!active||cursor>=tokens.length)return;tokens[cursor].state=state;cursor++;consecutiveSilences=state==='silent'?consecutiveSilences+1:0;wordStarted=performance.now();lastVoice=wordStarted;voicePresent=false;heardVoiceForWord=false;render();if(consecutiveSilences>=3){finish('Üst üste 3 kelime okunmadı',true);return}if(cursor>=tokens.length)finish('Okuma tamamlandı');}
 // Tanınan konuşmayı mevcut konumla hizalar. Birkaç kelime ileriye eşleşme varsa aradakiler atlanmış sayılır.
 function consumeTranscript(phrase){if(!active)return;const heard=(phrase.toLocaleLowerCase('tr-TR').match(/[\p{L}\p{N}]+/gu)||[]).map(normalize).filter(Boolean);for(let k=0;k<heard.length&&active;k++){const h=heard[k];if(!tokens[cursor])break;if(h===tokens[cursor].norm){mark('correct');continue}let found=-1;for(let j=cursor+1;j<Math.min(tokens.length,cursor+4);j++){if(tokens[j].norm===h){found=j;break}}if(found!==-1){while(active&&cursor<found)mark('wrong');if(active)mark('correct')}else{mark('wrong')}}}
 function recognizedWords(phrase){return (phrase.toLocaleLowerCase('tr-TR').match(/[\p{L}\p{N}]+/gu)||[]).map(normalize).filter(Boolean)}
 function handleRecognitionResult(event){
   if(!active)return;
+  const transcript=Array.from(event.results).map(r=>r[0]?.transcript||'').join(' | ');diag('diagText',transcript||'—');logDiag('onresult',transcript.slice(0,160));
   for(let i=event.resultIndex;i<event.results.length;i++){
     const result=event.results[i], words=recognizedWords(result[0]?.transcript||'');
     let count=resultProgress.get(i)||0;
@@ -68,29 +80,34 @@ function handleRecognitionResult(event){
 // iOS Safari: Eski oturumdan gelen olaylar yeni okumayı değiştiremez.
 let sessionId=0,starting=false,closing=Promise.resolve(),recognitionEnded=Promise.resolve(),recognitionEndResolve=null;
 function buttons(){start.disabled=active||starting||!tokens.length;stop.disabled=!active;reset.disabled=starting||!tokens.length;file.disabled=active||starting}
-function releaseResources(){
+function releaseResources(){logDiag('Kaynaklar kapatılıyor');diag('diagRec','Kapatılıyor');
   clearInterval(tick);cancelAnimationFrame(raf);clearTimeout(recognitionRestart);tick=raf=0;
   const old=recognition;recognition=null;
   if(old){old.onresult=null;old.onerror=null;old.onstart=null;old.onend=null;try{old.abort()}catch(e){} }
   if(recognitionEndResolve){recognitionEndResolve();recognitionEndResolve=null}
-  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}diag('diagMic','Kapalı');diag('diagMeter','');$('diagMeter').style.width='0%';
   const oldContext=audioContext;audioContext=null;
   if(oldContext&&oldContext.state!=='closed')oldContext.close().catch(()=>{});
   analyser=null;audioBuffer=null;voicePresent=false;heardVoiceForWord=false;
 }
 function cleanup(){sessionId++;active=false;releaseResources();buttons()}
 function setupRecognition(id){
-  const rec=new SR();recognition=rec;
+  const rec=new SR();recognition=rec;diag('diagRec','Başlatılıyor');logDiag('recognition.start çağrısı','oturum '+id);
   rec.lang='tr-TR';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
+  rec.onstart=()=>{if(id!==sessionId)return;diag('diagRec','Aktif (onstart)');logDiag('recognition.onstart')};
+  rec.onaudiostart=()=>{if(id===sessionId)logDiag('recognition.onaudiostart')};
+  rec.onsoundstart=()=>{if(id===sessionId)logDiag('recognition.onsoundstart')};
+  rec.onspeechstart=()=>{if(id===sessionId)logDiag('recognition.onspeechstart')};
+  rec.onspeechend=()=>{if(id===sessionId)logDiag('recognition.onspeechend')};
   rec.onresult=e=>{if(id===sessionId&&active)handleRecognitionResult(e)};
   rec.onerror=e=>{
-    if(id!==sessionId||!active)return;
+    if(id!==sessionId||!active)return;diag('diagError',e.error);logDiag('recognition.onerror',e.error);
     if(e.error==='no-speech'||e.error==='aborted')return;
     const msg=e.error==='network'?'Konuşma tanıma bağlantı hatası. Safari’de tekrar başlatmayı deneyin.':'Konuşma tanıma hatası: '+e.error;
     finish(msg,true);
   };
   rec.onend=()=>{
-    if(id!==sessionId||!active)return;
+    if(id!==sessionId||!active)return;diag('diagRec','Sona erdi (onend)');logDiag('recognition.onend');
     // Safari'de otomatik tekrar başlatma mikrofon oturumunu kilitleyebilir.
     finish('Konuşma tanıma oturumu sona erdi. Tekrar başlatmak için Okumaya Başla’ya basın.',true);
   };
@@ -99,15 +116,15 @@ function setupRecognition(id){
 async function begin(){
   if(!tokens.length||active||starting)return;
   if(!SR){showStatus('Safari bu cihazda konuşma tanımayı desteklemiyor.',true);return}
-  starting=true;buttons();showStatus('');
+  starting=true;buttons();showStatus('');logDiag('Başlat düğmesine basıldı');diag('diagError','—');diag('diagText','—');
   // Her kullanıcı tıklaması tamamen yeni bir tanıma nesnesi oluşturur.
-  const id=++sessionId;
+  const id=++sessionId;diag('diagSession',id);
   try{
     releaseResources();
-    stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    logDiag('getUserMedia isteniyor');stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});diag('diagMic','İzin verildi / '+stream.getAudioTracks().map(t=>t.readyState).join(','));logDiag('getUserMedia başarılı');
     if(id!==sessionId){releaseResources();return}
     audioContext=new (window.AudioContext||window.webkitAudioContext)();
-    await audioContext.resume();
+    await audioContext.resume();logDiag('AudioContext',audioContext.state);
     if(id!==sessionId){releaseResources();return}
     const source=audioContext.createMediaStreamSource(stream);
     analyser=audioContext.createAnalyser();analyser.fftSize=2048;source.connect(analyser);
@@ -119,14 +136,14 @@ async function begin(){
     setupRecognition(id);
     tick=setInterval(checkSilence,100);monitorAudio();
   }catch(e){
-    if(id===sessionId){cleanup();showStatus('Mikrofon veya konuşma tanıma başlatılamadı. Safari mikrofon iznini kontrol edin.',true)}
+    diag('diagError',e.name+': '+e.message);logDiag('Başlatma hatası',e.name+': '+e.message);if(id===sessionId){cleanup();showStatus('Mikrofon veya konuşma tanıma başlatılamadı. Safari mikrofon iznini kontrol edin.',true)}
   }finally{starting=false;buttons()}
 }
 function monitorAudio(){
   if(!active||!analyser)return;
   analyser.getFloatTimeDomainData(audioBuffer);
   let sum=0;for(let i=0;i<audioBuffer.length;i++)sum+=audioBuffer[i]*audioBuffer[i];
-  const rms=Math.sqrt(sum/audioBuffer.length),now=performance.now();
+  const rms=Math.sqrt(sum/audioBuffer.length),now=performance.now();if(!monitorAudio.lastUpdate||now-monitorAudio.lastUpdate>180){diag('diagRms',rms.toFixed(4));$('diagMeter').style.width=Math.min(100,rms*1000)+'%';monitorAudio.lastUpdate=now}
   if(rms>0.025){voicePresent=true;heardVoiceForWord=true;lastVoice=now}
   raf=requestAnimationFrame(monitorAudio);
 }
@@ -136,11 +153,11 @@ function checkSilence(){
   if(voicePresent){if(now-lastVoice>450){voicePresent=false;wordStarted=now}return}
   if(now-wordStarted>=3000)mark('silent');
 }
-function finish(message='',error=false){
+function finish(message='',error=false){logDiag('Okuma bitirildi',message);
   if(!active)return;
   elapsed=(performance.now()-startedAt)/1000;
   cleanup();render();showStatus(message,error);showResults();
 }
 function showResults(){const done=tokens.filter(t=>t.state);const correct=done.filter(t=>t.state==='correct').length;const wrong=done.filter(t=>t.state==='wrong').length;const silent=done.filter(t=>t.state==='silent').length;const accuracy=done.length?Math.round(100*correct/done.length):0;const wpm=elapsed?Math.round(done.length*60/elapsed):0;const items=[['Doğruluk',accuracy+'%'],['Okuma hızı',wpm+' kelime/dk'],['Doğru',correct],['Yanlış',wrong],['Okunmayan',silent],['Süre',Math.round(elapsed)+' sn']];$('stats').replaceChildren();for(const [label,value] of items){const div=document.createElement('div');div.className='stat';const strong=document.createElement('strong');strong.textContent=value;const span=document.createElement('span');span.textContent=label;div.append(strong,span);$('stats').append(div)}$('results').classList.add('show')}
-start.addEventListener('click',begin);stop.addEventListener('click',()=>finish('Okuma kullanıcı tarafından sonlandırıldı.'));reset.addEventListener('click',()=>{cleanup();tokens.forEach(t=>t.state='');cursor=0;consecutiveSilences=0;elapsed=0;render();$('results').classList.remove('show');showStatus('');buttons()});window.addEventListener('pagehide',cleanup);buttons();
+start.addEventListener('click',begin);stop.addEventListener('click',()=>finish('Okuma kullanıcı tarafından sonlandırıldı.'));reset.addEventListener('click',()=>{logDiag('Sıfırla düğmesine basıldı');cleanup();tokens.forEach(t=>t.state='');cursor=0;consecutiveSilences=0;elapsed=0;render();$('results').classList.remove('show');showStatus('');buttons()});window.addEventListener('pagehide',cleanup);buttons();
 </script></body></html>
